@@ -1,4 +1,0 @@
-[Debug]
-   AllLevel=5
-   AllMask=0
-
