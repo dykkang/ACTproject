@@ -4,7 +4,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdarg.h>
-extern "C"{
+//extern "C"{
 #define DEBUG_MODNAME "ActDebug"
 
 #define ACTDBG_LEVEL_ZERO 0
@@ -65,5 +65,5 @@ class CActDebug g_cDebug;
 extern class CActDebug g_cDebug;
 #endif
 
-}
+//}
 #endif

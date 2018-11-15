@@ -3,7 +3,7 @@
 
 #include "TCPServer.h"
 
-extern "C"{
+//extern "C"{
 
 #define CONSOLE_MODNAME "Console"
 #define ACTCON_PORT 8410 //config: Port
@@ -75,5 +75,5 @@ private:
 
 
 
-}
+//}
 #endif

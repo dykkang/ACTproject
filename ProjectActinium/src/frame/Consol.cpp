@@ -26,14 +26,6 @@ int CConsole::Init()
 {
     char strTemp[CONFIGITEM_DATALEN];
 
-/*    if(pFrame == NULL) 
-    {
-        ACTDBG_ERROR("Init: Missing frame class pointer.")
-        return -1;
-    }
-
-    m_pFrame = pFrame;
-*/
     memset(strTemp, 0 , sizeof(strTemp));
     if(g_cConfig.GetConfigItem("Port", "Console", strTemp) == 0)
     {
@@ -112,7 +104,7 @@ int CConsole::ProcessData(int iConn, unsigned char *pBuf, int iLen)
             char *pToken;
             pStr = m_strCurCmd[iConn];
             int iCnt=0;
-            while(pToken = strsep(&pStr, " "))
+            while((pToken = strsep(&pStr, " ")))
             {
                 if((iCnt>0) && (iCnt<ACTCON_CMDMAXPARAM))
                 {

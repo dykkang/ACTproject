@@ -5,7 +5,7 @@
 #include "../include/debug.h"
 
 CActConfig::CActConfig()
-{
+{ 
     m_iState = 0;
     m_iItemsCnt = 0;
     m_iGroupCnt = 0;
@@ -17,16 +17,30 @@ int CActConfig::Init()
 {
     m_iModID = g_cDebug.AddModule(CONFIG_MODNAME);
     return 0;
+    
 }
 
 
-int CActConfig::LoadConfigs()
+int CActConfig::LoadConfigs(char *strFileName)
 {
     FILE *fp;
     char str[256], *p, strGroup[CONFIGITEM_NAMELEN], strItem[CONFIGITEM_NAMELEN], strData[CONFIGITEM_DATALEN];
+    char strOpenName[256];
     int i;
+    int iGroupStat=0, iItemStat=0, iLineStat=0;
+
+    memset(strOpenName, 0, sizeof(strOpenName));
+    if(strFileName)
+        strncpy(strOpenName, strFileName, sizeof(strOpenName)-1);
+    if(strOpenName[0] == 0)
+        strcpy(strOpenName, CONFIG_FILENAME);
+
     fp = fopen(CONFIG_FILENAME, "rt");
-    if(!fp) return -1;
+    if(!fp)
+    {
+        ACTDBG_ERROR("LoadConfigs: config file <%s> cannot open", strOpenName);
+        return -1;
+    }
 
     memset(strGroup, 0, sizeof(strGroup));
     while(!feof(fp))
@@ -35,8 +49,8 @@ int CActConfig::LoadConfigs()
         memset(strItem, 0, sizeof(strItem));
         memset(strData, 0, sizeof(strData));
         fgets(str, sizeof(str)-1, fp);
-       // ACTDBG_WARNING(str);
         if(str[0]==0)continue;
+        iLineStat ++;
         p=str;
         while(strchr(" \t", *p)&&*p) p++;
 
@@ -53,6 +67,7 @@ int CActConfig::LoadConfigs()
                     strGroup[i] = *p;
                 p++;
             }
+            iGroupStat ++;
             continue;
         }
         else
@@ -84,7 +99,9 @@ int CActConfig::LoadConfigs()
                 p++; 
                 j++;
             }
+            iItemStat ++;
         }
+ 
         if(strItem[0] && strData[0])
         {
             for(i=0; i<m_iGroupCnt; i++)
@@ -106,6 +123,8 @@ int CActConfig::LoadConfigs()
             m_iItemsCnt ++;
         }
     }
+    ACTDBG_INFO("LoadConfigs: %d lines loads, checked %d groups and %d items.", iLineStat, iGroupStat, iItemStat)
+    ACTDBG_INFO("LoadConfigs: %d groups and %d items accepted.", m_iGroupCnt, m_iItemsCnt)
     return 0;
 }
 

@@ -11,7 +11,10 @@ public:
     CActNodeIn();
     ~CActNodeIn();
 
-    int PrintMe();
+    int Init();
+    int OneStep();
+    int Reset();
+    int Config(char *strConfig);
 
 private:
     int m_iModID;

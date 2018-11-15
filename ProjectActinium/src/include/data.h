@@ -1,6 +1,6 @@
 #ifndef ACTINIUM_DATA_H_271a7166_1fb3_44d4_b72c_8496a99f021e
 #define ACTINIUM_DATA_H_271a7166_1fb3_44d4_b72c_8496a99f021e
-extern "C"{
+//extern "C"{
 #define DATA_MODNAME "ActData"
 
 #define DATATYPE_UNKNOWN 0
@@ -41,5 +41,5 @@ private:
 
 
 
-}
+//}
 #endif

@@ -4,6 +4,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <errno.h>
+#include <signal.h>
 
 #include "../include/TCPServer.h"
 
@@ -16,8 +17,10 @@ CTCPServer::CTCPServer()
     m_ListenThread = 0;
     m_iState = 0;
     m_iConn = 0;
+    memset(m_iConnState, 0, sizeof(m_iConnState));
     for(int i=0; i<ACTTCPSVR_MAXCONN; i++)
         m_piConnFd[i] = -1;
+    memset(m_ConnectionThread, 0, sizeof(m_ConnectionThread));
     m_iModID = g_cDebug.AddModule(TCPSERVER_MODNAME);
 }
 
@@ -61,18 +64,19 @@ int CTCPServer::Start(int iPort)
 
 int CTCPServer::Stop()
 {
+    int i;
+    ACTDBG_DEBUG("Stop: <%d>", m_iPort)
     m_iState = 0;
+    memset(m_iConnState, 0, sizeof(m_iConnState));
     pthread_join(m_ListenThread, NULL);
     if(m_iSocketFd>0)
         close(m_iSocketFd);
-    for(int i=0; i<ACTTCPSVR_MAXCONN; i++)
-    {
-        if(m_piConnFd[i] >0)
-        {
-            close(m_piConnFd[i]);
-            m_piConnFd[i] = -1;
-        }
-    }
+    return 0;
+}
+
+int CTCPServer::StopConnection(int iConn)
+{
+    m_iConnState[iConn] = 0;
     return 0;
 }
 
@@ -80,6 +84,14 @@ void *CTCPServer::ListenThreadFunc(void *arg)
 {
     class CTCPServer *pThis = (class CTCPServer *)arg;
     pThis->ListenThread();
+    return NULL;
+}
+
+void *CTCPServer::ConnectionThreadFunc(void *arg)
+{
+    PCONN_THREAD_CONTEXT pContext = (PCONN_THREAD_CONTEXT) arg;
+    class CTCPServer *pThis = (class CTCPServer *)pContext->pThis;
+    pThis->ConnectionThread(pContext->iConn);
     return NULL;
 }
 
@@ -133,18 +145,13 @@ void *CTCPServer::ListenThread()
         FD_ZERO(&fsRead);
         FD_SET(m_iSocketFd, &fsRead);
         iFdMax = m_iSocketFd;
-        for(i=0; i<ACTTCPSVR_MAXCONN; i++)
-        {
-            if(m_piConnFd[i] == -1) continue;
-            FD_SET(m_piConnFd[i], &fsRead);
-            iFdMax = iFdMax>m_piConnFd[i]?iFdMax:m_piConnFd[i];
-        }
         
         iRv = select(iFdMax+1, &fsRead, NULL, NULL, &tvTimeOut);
         if(iRv == -1)
         {
             ACTDBG_ERROR("ListenThread: Select Error<%s>.", strerror(errno));
             m_iState = 0;
+            memset(m_iConnState, 0, sizeof(m_iConnState));
             return NULL;
         }
         if(FD_ISSET(m_iSocketFd, &fsRead))
@@ -159,9 +166,9 @@ void *CTCPServer::ListenThread()
             {
                 if(m_piConnFd[j] == -1)
                 {
-                    ACTDBG_INFO("ListenThread: New Connection<%d>.", j);
+                    ACTDBG_INFO("ListenThread: New Connection<%d>.fd=%d", j,fd);
                     m_piConnFd[j] = fd;
-                    OnConnected(j);
+                    StartConnection(j);
                     break;
                 }
             }
@@ -172,30 +179,108 @@ void *CTCPServer::ListenThread()
                 continue;
             }
         }
-        for(j=0; j<ACTTCPSVR_MAXCONN; j++)
+    }
+    for(i=0; i<ACTTCPSVR_MAXCONN; i++)
+    {
+        if(m_ConnectionThread[i]>0)
+            pthread_join(m_ConnectionThread[i], NULL);
+    }
+    for(int i=0; i<ACTTCPSVR_MAXCONN; i++)
+    {
+        if(m_piConnFd[i] >0)
         {
-            if(m_piConnFd[j] == -1) continue;
-            if(!FD_ISSET(m_piConnFd[j], &fsRead)) continue;
-            unsigned char pucBuf[ACTTCPSVR_MAXDATALEN] = {0};
-            iRv = recv(m_piConnFd[j], pucBuf, sizeof(pucBuf), 0);
-            ACTDBG_DEBUG("ListenThread: Recv <%d.%d> [%s]", iRv, j, (char *)pucBuf)
-            if(iRv > 0)
-            {
-                ProcessData(j, pucBuf, iRv);
-            }
-            else if(iRv == 0)
-            {
-                ACTDBG_WARNING("ListenThread: Connection <%d> closed.", m_piConnFd[j])
-                close(m_piConnFd[j]);
-                m_piConnFd[j] = -1;
-            }
-            else
-            {
-                ACTDBG_ERROR("ListenThread: Recv error<%s>.", strerror(errno))
-            }
+            close(m_piConnFd[i]);
+            m_piConnFd[i] = -1;
         }
     }
     ACTDBG_INFO("ListenThread exit.");
+    return NULL;
+}
+
+int CTCPServer::StartConnection(int iConn)
+{
+    int iRv;
+    if(m_ConnectionThread[iConn])
+    {
+        iRv = pthread_kill(m_ConnectionThread[iConn], 0);
+        if(iRv == ESRCH) //already exited.
+            m_ConnectionThread[iConn] = 0;
+        else if(iRv == EINVAL)
+        {
+            ACTDBG_ERROR("StartConnection: Connection Thread <%d> Signal invalid", iConn);
+            return -1;
+        }
+        else
+        {
+            ACTDBG_WARNING("StartConnection: Connection Thread <%d> is Runing, do nothing here.", iConn)
+            return 0;
+        }
+    }
+
+    CONN_THREAD_CONTEXT sContext;
+    sContext.pThis = (void *)this;
+    sContext.iConn = iConn;
+
+    if(pthread_create(&m_ConnectionThread[iConn], NULL, ConnectionThreadFunc, &sContext))
+    {
+        ACTDBG_ERROR("StartConnection: Create ConnectionThread <%d> fail!", iConn)
+        m_ConnectionThread[iConn] = 0;
+        return -1;
+    }
+
+    ACTDBG_INFO("StartConnection: ConnectionThread <%d> started successfully. m_piConnFd=%d", iConn,m_piConnFd[iConn])
+    return 0;
+}
+void *CTCPServer::ConnectionThread(int iConn)
+{
+    int i, j, iRv;
+    m_iConnState[iConn] = 1;
+
+
+
+    fd_set fsRead;
+    int iFdMax=0;
+    struct timeval tvTimeOut;
+
+    OnConnected(iConn);
+
+    while(m_iConnState[iConn])
+    {
+        iFdMax = 0;
+        FD_ZERO(&fsRead);
+        FD_SET(m_piConnFd[iConn], &fsRead);
+        iFdMax = m_piConnFd[iConn];
+        
+        tvTimeOut.tv_sec = ACTTCPSVR_TIMEOUT_US / 1000000L;
+        tvTimeOut.tv_usec = ACTTCPSVR_TIMEOUT_US % 1000000L;
+        iRv = select(iFdMax+1, &fsRead, NULL, NULL, &tvTimeOut);
+        if(iRv == -1)
+        {
+            ACTDBG_ERROR("ConnectionThread: Select Error<%s>.", strerror(errno));
+            m_iConnState[iConn] = 0;
+            return NULL;
+        }
+        if(FD_ISSET(m_piConnFd[iConn], &fsRead))
+        {
+            unsigned char pucBuf[ACTTCPSVR_MAXDATALEN] = {0};
+            iRv = recv(m_piConnFd[iConn], pucBuf, sizeof(pucBuf), 0);
+            ACTDBG_DEBUG("ConnectionThread: Recv <%d.%d> [%s],,,,m_piConnFd=%d", iRv, iConn, (char *)pucBuf,m_piConnFd[iConn])
+            if(iRv > 0)
+            {
+                ACTDBG_INFO("ProcessData: m_piConnFd=%d", m_piConnFd[iConn])
+                ProcessData(iConn, pucBuf, iRv);
+            }
+            else
+            {
+                ACTDBG_ERROR("ConnectionThread: Recv error<%s>.", strerror(errno))
+                m_iConnState[iConn] = 0;
+            }
+        }
+    }
+    OnDisconnected(iConn);
+    close(m_piConnFd[iConn]);
+    m_piConnFd[iConn] = -1;
+    ACTDBG_INFO("ConnectionThread exit.");
     return NULL;
 }
 
@@ -216,6 +301,12 @@ int CTCPServer::OnConnected(int iConn)
     return 0;
 }
 
+int CTCPServer::OnDisconnected(int iConn)
+{
+    ACTDBG_INFO("OnDisconnected: <%d> do nothing.", iConn);
+    return 0;
+}
+
 int CTCPServer::Send(int iConn, unsigned char *pBuf, int iLen)
 {
     int iRv;
@@ -231,6 +322,8 @@ int CTCPServer::Send(int iConn, unsigned char *pBuf, int iLen)
         ACTDBG_ERROR("Send: Bad Connection <%d>%d.", iConn, m_piConnFd[iConn])
         return -1;
     }
+    
+    ACTDBG_INFO("Send: m_piConnFd=%d", m_piConnFd[iConn])
     int iLeft = iLen;
     int iSend = iLeft>ACTTCPSVR_MAXDATALEN?ACTTCPSVR_MAXDATALEN:iLeft;
     while(iLeft>0)
@@ -238,11 +331,32 @@ int CTCPServer::Send(int iConn, unsigned char *pBuf, int iLen)
         iRv = send(m_piConnFd[iConn], pBuf+(iLen-iLeft), iSend, 0);
         if(iRv == -1)
         {
-            ACTDBG_ERROR("Send: error<%s>.", strerror(errno))
-            break;
+            ACTDBG_ERROR("Send: error<%s>.m_piConnFd=%d", strerror(errno),m_piConnFd[iConn])
+//            break;
+            return -1;
         }
         iLeft -= iSend;
     }
+
     return 0;
+
 }
 
+int CTCPServer::SendToAll(unsigned char *pBuf, int iLen)
+{
+    int i;
+
+    if((pBuf == NULL) || (iLen<0) || (iLen > ACTTCPSVR_MAXSENDLEN))
+    {
+        ACTDBG_ERROR("Send: Invalid Params.")
+        return -1;
+    }
+    
+    for(i=0; i<ACTTCPSVR_MAXCONN; i++)
+    {
+        if(m_piConnFd[i]>0)
+        Send(i, pBuf, iLen);
+    }
+
+    return 0;
+}

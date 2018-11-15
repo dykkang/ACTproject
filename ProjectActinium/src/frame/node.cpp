@@ -13,3 +13,4 @@ int CActNode::GetInfo(ACTNODEINFO &sInfo)
     memcpy(&sInfo, &m_sInfo, sizeof(ACTNODEINFO));
     return 0;
 }
+ 

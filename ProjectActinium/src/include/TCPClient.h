@@ -1,5 +1,7 @@
 #ifndef ACTINIUM_TCPClient_H_b16609c5-14fe-40b2-a1fe-9f2b396ba212
-#define ACTINIUM_TCPClient_H_b16609c5-14fe-40b2-a1fe-9f2b396ba212
+#define ACTINIUM_TCPClient_H_b16609c5-14fe-40b2-a1fe-9f2b396ba212 
+
+
 
 #include <pthread.h>
 #include <sys/socket.h>
@@ -8,10 +10,9 @@
 
 #include "../include/debug.h"
 
-extern "C"{
+//extern "C"{
 
 #define TCPCLIENT_MODNAME "TCPClient"
-#define ACTTCPCLI_MAXCONN 8
 #define ACTTCPCLI_TIMEOUT_US 100000L
 #define ACTTCPCLI_MAXDATALEN 1024
 
@@ -26,18 +27,19 @@ public:
 	int Stop();
 
 	static void *ConnectFunc(void *arg);
-	void *Connect();
+	void *ClientConnect();
 
-	virtual int processDate(int iconn, unsigned char *pbuf, int ilen);
-	int Sendmess(int iconn, unsigned char *pbuf, int ilen);
+	virtual int processData(unsigned char *pbuf, int ilen);
+	int Sendmess(unsigned char *pbuf, int ilen);
+
+	int OnConnect();
 
 private:
-	int socket_fd;
-	int d_Port;
-	char* d_Ip;
+	int m_socket_fd;
+	int m_Port;
+	char* m_Ip;
 	char message[ACTTCPCLI_MAXDATALEN];
 	struct sockaddr_in server_addr;
-	int m_clIconnFd[ACTTCPCLI_MAXCONN];
 	int m_State;
 
 	pthread_t m_SendThread;
@@ -47,6 +49,6 @@ protected:
 	
 };
 
-}
+//}
 #endif 
 
